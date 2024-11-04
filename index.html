@@ -1,387 +1,166 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Neural Network Unit with Morphing Surface</title>
-    <style>
-        body { 
-            margin: 0; 
-            padding: 0; 
-            font-family: Arial, sans-serif;
-            background: white;
-            overflow: hidden;
-        }
-        .container {
-            display: grid;
-            grid-template-columns: 60% 40%;
-            width: 100vw;
-            height: 100vh;
-        }
-        #bowl-container {
-            position: relative;
-        }
-        #network-container {
-            position: relative;
-            background: #f8f9fa;
-            border-left: 1px solid #ddd;
-            padding: 20px;
-        }
-        .controls {
-            position: fixed;
-            top: 20px;
-            left: 20px;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            z-index: 1000;
-        }
-        .slider-group {
-            margin-bottom: 15px;
-        }
-        .slider-group label {
-            display: block;
-            margin-bottom: 5px;
-        }
-        input[type="range"] {
-            width: 200px;
-        }
-        .shape-control {
-            margin-top: 20px;
-            padding-top: 15px;
-            border-top: 1px solid #ddd;
-        }
-        canvas {
-            display: block;
-        }
-        #instructions {
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        #mse-equation {
-            position: fixed;
-            top: 20px;
-            right: 45%;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            font-family: "Times New Roman", Times, serif;
-            font-size: 1.2em;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div id="bowl-container">
-            <canvas id="surface-canvas"></canvas>
-        </div>
-        <div id="network-container">
-            <canvas id="network-canvas"></canvas>
-        </div>
-    </div>
+function handleMouseMove(e) {
+            if (!state.isDragging && !state.isRotating && !state.isPanning) return;
 
-    <div id="mse-equation">
-        MSE = ½(y - ŷ)² = ½(0 - (θ₁x₁ + θ₂x₂))² = 0.0
-    </div>
-
-    <div class="controls">
-        <div class="slider-group">
-            <label>Weight 1 (θ₁): <span id="x-value">0.0</span></label>
-            <input type="range" id="x" min="-5" max="5" value="0" step="0.1">
-        </div>
-        <div class="slider-group">
-            <label>Weight 2 (θ₂): <span id="y-value">0.0</span></label>
-            <input type="range" id="y" min="-5" max="5" value="0" step="0.1">
-        </div>
-        <div class="shape-control">
-            <label>Surface Shape: <span id="morph-value">Flat</span></label>
-            <input type="range" id="morph" min="0" max="1" value="0" step="0.01">
-        </div>
-        <div id="value">Loss: 0.0</div>
-    </div>
-
-    <div id="instructions">
-        • Drag red point to adjust weights<br>
-        • Right-click + drag to rotate view<br>
-        • Mouse wheel to zoom<br>
-        • Middle-click + drag to move graph<br>
-        • Use shape slider to morph surface
-    </div>
-
-    <script>
-        const surfaceCanvas = document.getElementById('surface-canvas');
-        const networkCanvas = document.getElementById('network-canvas');
-        const ctx = surfaceCanvas.getContext('2d');
-        const netCtx = networkCanvas.getContext('2d');
-
-        let width, height;
-        let rotation = { x: 45, y: 45 };
-        let scale = 1;
-        let morphValue = 0;
-        let currentPos = { x: 0, y: 0 };
-        let isDragging = false;
-        let isRotating = false;
-        let isPanning = false;
-        let lastMousePos = { x: 0, y: 0 };
-        let path = [];
-        let translation = { x: 0, y: 0 };
-
-        function resizeCanvases() {
-            const container = document.getElementById('bowl-container');
-            width = surfaceCanvas.width = container.clientWidth;
-            height = surfaceCanvas.height = container.clientHeight;
+            const deltaX = e.clientX - state.lastMousePos.x;
+            const deltaY = e.clientY - state.lastMousePos.y;
             
-            const netContainer = document.getElementById('network-container');
-            networkCanvas.width = netContainer.clientWidth;
-            networkCanvas.height = netContainer.clientHeight;
+            if (state.isRotating) {
+                state.rotation.y = (state.rotation.y + deltaX * 0.5) % 360;
+                state.rotation.x = Math.max(-90, Math.min(90, state.rotation.x + deltaY * 0.5));
+            } else if (state.isPanning) {
+                state.translation.x += deltaX;
+                state.translation.y += deltaY;
+            } else if (state.isDragging) {
+                state.currentPos.x = Math.max(-5, Math.min(5, state.currentPos.x + deltaX * 0.01));
+                state.currentPos.y = Math.max(-5, Math.min(5, state.currentPos.y - deltaY * 0.01));
+                updateSliders();
+            }
             
+            state.lastMousePos = { x: e.clientX, y: e.clientY };
             draw();
-            drawNetwork();
         }
 
-        function loss(x, y, morph) {
-            // Interpolate between flat surface (z = 0) and bowl (z = x² + y²)
-            return (x * x + y * y) * morph;
+        function handleMouseUp() {
+            state.isDragging = false;
+            state.isRotating = false;
+            state.isPanning = false;
         }
 
-        function project(x, y, z) {
-            const baseScale = Math.min(width, height) / 12;
-            const finalScale = baseScale * scale;
-            const centerX = width / 2 + translation.x;
-            const centerY = height / 2 + translation.y;
-            
-            const xRot = rotation.x * Math.PI / 180;
-            const yRot = rotation.y * Math.PI / 180;
-            
-            const x1 = x;
-            const y1 = y * Math.cos(xRot) - z * Math.sin(xRot);
-            const z1 = y * Math.sin(xRot) + z * Math.cos(xRot);
-            
-            const x2 = x1 * Math.cos(yRot) + z1 * Math.sin(yRot);
-            
-            return {
-                x: x2 * finalScale + centerX,
-                y: y1 * finalScale + centerY
-            };
+        function handleWheel(e) {
+            e.preventDefault();
+            const scaleFactor = e.deltaY > 0 ? 0.9 : 1.1;
+            state.scale = Math.max(0.1, Math.min(5, state.scale * scaleFactor));
+            draw();
         }
 
-        function getColor(height) {
-            const maxHeight = 50;
-            const normalized = Math.min(height / maxHeight, 1);
-            const hue = 240 - normalized * 180;
-            return `hsl(${hue}, 80%, 50%)`;
+        // Touch event handlers for mobile support
+        function handleTouchStart(e) {
+            if (e.touches.length === 1) {
+                state.isDragging = true;
+                state.lastMousePos = { 
+                    x: e.touches[0].clientX, 
+                    y: e.touches[0].clientY 
+                };
+            } else if (e.touches.length === 2) {
+                // Store initial touch points for pinch-zoom
+                state.initialTouchDistance = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+            }
+            e.preventDefault();
         }
 
-        function updateMSEEquation() {
-            const targetY = 0; // Target output is 0
-            const predictedY = currentPos.x * 1 + currentPos.y * 1; // Simple linear combination
-            const mse = 0.5 * Math.pow(targetY - predictedY, 2);
-            
-            document.getElementById('mse-equation').innerHTML = 
-                `MSE = ½(y - ŷ)² = ½(0 - (θ₁x₁ + θ₂x₂))² = ½(0 - (${currentPos.x.toFixed(1)} × 1 + ${currentPos.y.toFixed(1)} × 1))² = ${mse.toFixed(2)}`;
-        }
-
-        function drawSurface() {
-            ctx.clearRect(0, 0, width, height);
-            
-            // Draw grid
-            for (let x = -5; x <= 5; x += 0.2) {
-                for (let y = -5; y <= 5; y += 0.2) {
-                    const z = loss(x, y, morphValue);
-                    const proj = project(x, y, z);
-                    ctx.beginPath();
-                    ctx.arc(proj.x, proj.y, 2 * scale, 0, Math.PI * 2);
-                    ctx.fillStyle = getColor(z);
-                    ctx.fill();
+        function handleTouchMove(e) {
+            if (e.touches.length === 1 && state.isDragging) {
+                const deltaX = e.touches[0].clientX - state.lastMousePos.x;
+                const deltaY = e.touches[0].clientY - state.lastMousePos.y;
+                
+                state.currentPos.x = Math.max(-5, Math.min(5, state.currentPos.x + deltaX * 0.01));
+                state.currentPos.y = Math.max(-5, Math.min(5, state.currentPos.y - deltaY * 0.01));
+                
+                state.lastMousePos = { 
+                    x: e.touches[0].clientX, 
+                    y: e.touches[0].clientY 
+                };
+                updateSliders();
+                draw();
+            } else if (e.touches.length === 2) {
+                // Handle pinch-zoom
+                const currentDistance = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                
+                if (state.initialTouchDistance) {
+                    const scaleFactor = currentDistance / state.initialTouchDistance;
+                    state.scale = Math.max(0.1, Math.min(5, state.scale * scaleFactor));
+                    state.initialTouchDistance = currentDistance;
+                    draw();
                 }
             }
-            
-            // Draw current point
-            const z = loss(currentPos.x, currentPos.y, morphValue);
-            const proj = project(currentPos.x, currentPos.y, z);
-            const baseProj = project(currentPos.x, currentPos.y, 0);
-
-            // Vertical line
-            ctx.beginPath();
-            ctx.moveTo(proj.x, proj.y);
-            ctx.lineTo(proj.x, baseProj.y);
-            ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-            ctx.setLineDash([5, 5]);
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            // Point
-            ctx.beginPath();
-            ctx.arc(proj.x, proj.y, 6 * scale, 0, Math.PI * 2);
-            ctx.fillStyle = 'red';
-            ctx.fill();
+            e.preventDefault();
         }
 
-        function drawNetwork() {
-            const width = networkCanvas.width;
-            const height = networkCanvas.height;
-            netCtx.clearRect(0, 0, width, height);
+        function handleTouchEnd() {
+            state.isDragging = false;
+            state.initialTouchDistance = null;
+        }
 
-            // Draw neurons
-            const neuronRadius = 20;
-            const inputY1 = height * 0.3;
-            const inputY2 = height * 0.7;
-            const outputY = height * 0.5;
-            
-            function drawNeuron(x, y, label) {
-                netCtx.beginPath();
-                netCtx.arc(x, y, neuronRadius, 0, Math.PI * 2);
-                netCtx.fillStyle = '#fff';
-                netCtx.fill();
-                netCtx.strokeStyle = '#000';
-                netCtx.lineWidth = 2;
-                netCtx.stroke();
+        function updateSliders() {
+            safeExecute(() => {
+                const xSlider = document.getElementById('x');
+                const ySlider = document.getElementById('y');
                 
-                netCtx.fillStyle = '#000';
-                netCtx.font = '16px Arial';
-                netCtx.textAlign = 'center';
-                netCtx.textBaseline = 'middle';
-                netCtx.fillText(label, x, y);
-            }
-
-            function drawConnection(x1, y1, x2, y2, weight) {
-                const width = Math.abs(weight) * 2;
-                netCtx.beginPath();
-                netCtx.moveTo(x1, y1);
-                netCtx.lineTo(x2, y2);
-                netCtx.strokeStyle = weight >= 0 ? 'blue' : 'red';
-                netCtx.lineWidth = width;
-                netCtx.stroke();
-
-                const midX = (x1 + x2) / 2;
-                const midY = (y1 + y2) / 2;
-                netCtx.fillStyle = '#000';
-                netCtx.font = '14px Arial';
-                netCtx.textAlign = 'center';
-                netCtx.fillText(weight.toFixed(2), midX, midY);
-            }
-
-            const input1X = width * 0.2;
-            const input2X = width * 0.2;
-            const outputX = width * 0.8;
-
-            drawConnection(input1X + neuronRadius, inputY1, outputX - neuronRadius, outputY, currentPos.x);
-            drawConnection(input2X + neuronRadius, inputY2, outputX - neuronRadius, outputY, currentPos.y);
-
-            drawNeuron(input1X, inputY1, "x₁");
-            drawNeuron(input2X, inputY2, "x₂");
-            drawNeuron(outputX, outputY, "y");
-
-            netCtx.font = 'bold 18px Arial';
-            netCtx.fillStyle = '#000';
-            netCtx.textAlign = 'center';
-            netCtx.fillText('Neural Network Unit', width/2, 30);
-        }
-
-        function draw() {
-            drawSurface();
-            drawNetwork();
-            updateMSEEquation();
+                if (xSlider && ySlider) {
+                    xSlider.value = state.currentPos.x;
+                    ySlider.value = state.currentPos.y;
+                    
+                    document.getElementById('x-value').textContent = state.currentPos.x.toFixed(1);
+                    document.getElementById('y-value').textContent = state.currentPos.y.toFixed(1);
+                    document.getElementById('value').textContent = 
+                        `Loss: ${loss(state.currentPos.x, state.currentPos.y, state.morphValue).toFixed(1)}`;
+                }
+            });
         }
 
         // Event Listeners
-        surfaceCanvas.addEventListener('mousedown', (e) => {
-            lastMousePos = { x: e.clientX, y: e.clientY };
-            if (e.button === 2) {
-                isRotating = true;
-            } else if (e.button === 1) { // Middle mouse button
-                isPanning = true;
-                e.preventDefault();
-            } else {
-                isDragging = true;
-            }
-        });
+        function initializeEventListeners() {
+            // Mouse events
+            surfaceCanvas.addEventListener('mousedown', handleMouseDown);
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+            surfaceCanvas.addEventListener('wheel', handleWheel);
+            surfaceCanvas.addEventListener('contextmenu', e => e.preventDefault());
 
-        surfaceCanvas.addEventListener('mousemove', (e) => {
-            if (isDragging || isRotating || isPanning) {
-                const deltaX = e.clientX - lastMousePos.x;
-                const deltaY = e.clientY - lastMousePos.y;
-                
-                if (isRotating) {
-                    rotation.y += deltaX * 0.5;
-                    rotation.x += deltaY * 0.5;
-                } else if (isPanning) {
-                    translation.x += deltaX;
-                    translation.y += deltaY;
-                } else {
-                    currentPos.x += deltaX * 0.01;
-                    currentPos.y -= deltaY * 0.01;
-                    currentPos.x = Math.max(-5, Math.min(5, currentPos.x));
-                    currentPos.y = Math.max(-5, Math.min(5, currentPos.y));
+            // Touch events
+            surfaceCanvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+            surfaceCanvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+            surfaceCanvas.addEventListener('touchend', handleTouchEnd);
+
+            // Slider events
+            const xSlider = document.getElementById('x');
+            const ySlider = document.getElementById('y');
+            const morphSlider = document.getElementById('morph');
+
+            if (xSlider) {
+                xSlider.addEventListener('input', (e) => {
+                    state.currentPos.x = parseFloat(e.target.value);
                     updateSliders();
-                }
-                
-                lastMousePos = { x: e.clientX, y: e.clientY };
-                draw();
+                    draw();
+                });
             }
-        });
 
-        surfaceCanvas.addEventListener('mouseup', () => {
-            isDragging = false;
-            isRotating = false;
-            isPanning = false;
-        });
+            if (ySlider) {
+                ySlider.addEventListener('input', (e) => {
+                    state.currentPos.y = parseFloat(e.target.value);
+                    updateSliders();
+                    draw();
+                });
+            }
 
-        surfaceCanvas.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            scale *= e.deltaY > 0 ? 0.9 : 1.1;
-            scale = Math.max(0.1, Math.min(scale, 5));
-            draw();
-        });
+            if (morphSlider) {
+                morphSlider.addEventListener('input', (e) => {
+                    state.morphValue = parseFloat(e.target.value);
+                    document.getElementById('morph-value').textContent = 
+                        state.morphValue === 0 ? 'Flat' : state.morphValue === 1 ? 'Bowl' : 'Morphing';
+                    draw();
+                });
+            }
 
-        surfaceCanvas.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-        });
-
-        // Slider controls
-        const xSlider = document.getElementById('x');
-        const ySlider = document.getElementById('y');
-        const morphSlider = document.getElementById('morph');
-
-        function updateSliders() {
-            xSlider.value = currentPos.x;
-            ySlider.value = currentPos.y;
-            document.getElementById('x-value').textContent = currentPos.x.toFixed(1);
-            document.getElementById('y-value').textContent = currentPos.y.toFixed(1);
-            document.getElementById('value').textContent = 
-                `Loss: ${loss(currentPos.x, currentPos.y, morphValue).toFixed(1)}`;
+            // Window resize
+            window.addEventListener('resize', debounce(resizeCanvases, 250));
         }
 
-        xSlider.addEventListener('input', (e) => {
-            currentPos.x = parseFloat(e.target.value);
-            updateSliders();
-            draw();
-        });
-
-        ySlider.addEventListener('input', (e) => {
-            currentPos.y = parseFloat(e.target.value);
-            updateSliders();
-            draw();
-        });
-
-        morphSlider.addEventListener('input', (e) => {
-            morphValue = parseFloat(e.target.value);
-            document.getElementById('morph-value').textContent = 
-                morphValue === 0 ? 'Flat' : morphValue === 1 ? 'Bowl' : 'Morphing';
-            draw();
-        });
-
         // Initialize
-        window.addEventListener('resize', resize
-                                // Initialize
-        window.addEventListener('resize', resizeCanvases);
-        resizeCanvases();
-        updateSliders();
+        function initialize() {
+            resizeCanvases();
+            updateSliders();
+            initializeEventListeners();
+        }
+
+        // Start the application
+        initialize();
     </script>
 </body>
 </html>
