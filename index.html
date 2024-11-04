@@ -3,111 +3,28 @@
 <head>
     <title>Neural Network Unit with Morphing Surface</title>
     <style>
-        body { 
-            margin: 0; 
-            padding: 0; 
-            font-family: Arial, sans-serif;
-            background: white;
-            overflow: hidden;
-        }
-        .container {
-            display: grid;
-            grid-template-columns: 60% 40%;
-            width: 100vw;
-            height: 100vh;
-        }
-        #bowl-container {
-            position: relative;
-            touch-action: none; /* Prevents default touch behaviors */
-        }
-        #network-container {
-            position: relative;
-            background: #f8f9fa;
-            border-left: 1px solid #ddd;
-            padding: 20px;
-        }
-        .controls {
-            position: fixed;
-            top: 20px;
-            left: 20px;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            z-index: 1000;
-            max-width: 300px; /* Prevent overflow on small screens */
-        }
-        .slider-group {
-            margin-bottom: 15px;
-        }
-        .slider-group label {
-            display: block;
-            margin-bottom: 5px;
-        }
-        input[type="range"] {
-            width: 100%;
-            max-width: 200px;
-        }
-        .shape-control {
-            margin-top: 20px;
-            padding-top: 15px;
-            border-top: 1px solid #ddd;
-        }
-        canvas {
-            display: block;
-            touch-action: none;
-        }
-        #instructions {
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            max-width: 300px;
-        }
-        #mse-equation {
-            position: fixed;
-            top: 20px;
-            right: 45%;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            font-family: "Times New Roman", Times, serif;
-            font-size: 1.2em;
-            z-index: 1000;
-            max-width: 400px;
-            word-wrap: break-word;
-        }
-
-        /* Added responsive design */
-        @media (max-width: 768px) {
-            .container {
-                grid-template-columns: 1fr;
-            }
-            #mse-equation {
-                right: 20px;
-                font-size: 1em;
-            }
-        }
+        body{margin:0;padding:0;font-family:Arial,sans-serif;background:#fff;overflow:hidden}
+        .container{display:grid;grid-template-columns:60% 40%;width:100vw;height:100vh}
+        #bowl-container{position:relative;touch-action:none}
+        #network-container{position:relative;background:#f8f9fa;border-left:1px solid #ddd;padding:20px}
+        .controls,.instructions,#mse-equation{position:fixed;background:rgba(255,255,255,.95);padding:15px;border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,.1);z-index:1000}
+        .controls{top:20px;left:20px;max-width:300px}
+        #mse-equation{top:20px;right:45%;font-family:"Times New Roman",serif;font-size:1.2em;max-width:400px;word-wrap:break-word}
+        .instructions{bottom:20px;left:20px;max-width:300px}
+        .slider-group{margin-bottom:15px}
+        .slider-group label{display:block;margin-bottom:5px}
+        input[type="range"]{width:100%;max-width:200px}
+        .shape-control{margin-top:20px;padding-top:15px;border-top:1px solid #ddd}
+        canvas{display:block;touch-action:none}
+        @media(max-width:768px){.container{grid-template-columns:1fr}#mse-equation{right:20px;font-size:1em}}
     </style>
 </head>
 <body>
     <div class="container">
-        <div id="bowl-container">
-            <canvas id="surface-canvas"></canvas>
-        </div>
-        <div id="network-container">
-            <canvas id="network-canvas"></canvas>
-        </div>
+        <div id="bowl-container"><canvas id="surface-canvas"></canvas></div>
+        <div id="network-container"><canvas id="network-canvas"></canvas></div>
     </div>
-
-    <div id="mse-equation">
-        MSE = ½(y - ŷ)² = ½(0 - (θ₁x₁ + θ₂x₂))² = 0.0
-    </div>
-
+    <div id="mse-equation">MSE = ½(y - ŷ)² = ½(0 - (θ₁x₁ + θ₂x₂))² = 0.0</div>
     <div class="controls">
         <div class="slider-group">
             <label>Weight 1 (θ₁): <span id="x-value">0.0</span></label>
@@ -123,8 +40,7 @@
         </div>
         <div id="value">Loss: 0.0</div>
     </div>
-
-    <div id="instructions">
+    <div class="instructions">
         • Drag red point to adjust weights<br>
         • Right-click + drag to rotate view<br>
         • Mouse wheel to zoom<br>
@@ -132,422 +48,242 @@
         • Use shape slider to morph surface
     </div>
 
-    <script>
-        // Cache DOM elements
-        const surfaceCanvas = document.getElementById('surface-canvas');
-        const networkCanvas = document.getElementById('network-canvas');
-        const ctx = surfaceCanvas.getContext('2d');
-        const netCtx = networkCanvas.getContext('2d');
+<script>
+const s={width:0,height:0,rot:{x:45,y:45},scale:1,morph:0,pos:{x:0,y:0},trans:{x:0,y:0},isDrag:false,isRot:false,isPan:false,last:{x:0,y:0},frame:null},
+      c={surf:document.getElementById('surface-canvas'),net:document.getElementById('network-canvas')},
+      ctx={surf:c.surf.getContext('2d'),net:c.net.getContext('2d')};
 
-        // State management
-        const state = {
-            width: 0,
-            height: 0,
-            rotation: { x: 45, y: 45 },
-            scale: 1,
-            morphValue: 0,
-            currentPos: { x: 0, y: 0 },
-            translation: { x: 0, y: 0 },
-            isDragging: false,
-            isRotating: false,
-            isPanning: false,
-            lastMousePos: { x: 0, y: 0 },
-            animationFrameId: null
+const run=(f,d=null)=>{ try{return f()}catch(e){console.error(e);return d} };
+const loss=(x,y,m)=>run(()=>(x*x+y*y)*m,0);
+
+const proj=(x,y,z)=>run(()=>{
+    const sc=Math.min(s.width,s.height)/12*s.scale,
+          [cx,cy]=[s.width/2+s.trans.x,s.height/2+s.trans.y],
+          [xr,yr]=[s.rot.x*Math.PI/180,s.rot.y*Math.PI/180],
+          y1=y*Math.cos(xr)-z*Math.sin(xr),
+          z1=y*Math.sin(xr)+z*Math.cos(xr),
+          x2=x*Math.cos(yr)+z1*Math.sin(yr);
+    return {x:x2*sc+cx,y:y1*sc+cy};
+},{x:s.width/2,y:s.height/2});
+
+const draw=()=>{
+    if(s.frame)cancelAnimationFrame(s.frame);
+    s.frame=requestAnimationFrame(()=>{
+        // Surface
+        ctx.surf.clearRect(0,0,s.width,s.height);
+        for(let x=-5;x<=5;x+=.2)for(let y=-5;y<=5;y+=.2){
+            const z=loss(x,y,s.morph),p=proj(x,y,z),
+                  h=Math.min(z/50,1),c=`hsl(${240-h*180},80%,50%)`;
+            ctx.surf.beginPath();
+            ctx.surf.arc(p.x,p.y,2*s.scale,0,2*Math.PI);
+            ctx.surf.fillStyle=c;
+            ctx.surf.fill();
+        }
+        
+        const z=loss(s.pos.x,s.pos.y,s.morph),
+              p=proj(s.pos.x,s.pos.y,z),
+              b=proj(s.pos.x,s.pos.y,0);
+        
+        ctx.surf.beginPath();
+        ctx.surf.moveTo(p.x,p.y);
+        ctx.surf.lineTo(p.x,b.y);
+        ctx.surf.strokeStyle='rgba(0,0,0,.5)';
+        ctx.surf.setLineDash([5,5]);
+        ctx.surf.stroke();
+        ctx.surf.setLineDash([]);
+        
+        ctx.surf.beginPath();
+        ctx.surf.arc(p.x,p.y,6*s.scale,0,2*Math.PI);
+        ctx.surf.fillStyle='red';
+        ctx.surf.fill();
+
+        // Network
+        const [w,h]=[c.net.width,c.net.height];
+        ctx.net.clearRect(0,0,w,h);
+        
+        const r=20,[y1,y2,yo]=[h*.3,h*.7,h*.5],
+              [x1,x2,xo]=[w*.2,w*.2,w*.8];
+        
+        const drawNeuron=(x,y,l)=>{
+            ctx.net.beginPath();
+            ctx.net.arc(x,y,r,0,2*Math.PI);
+            ctx.net.fillStyle='#fff';
+            ctx.net.fill();
+            ctx.net.strokeStyle='#000';
+            ctx.net.lineWidth=2;
+            ctx.net.stroke();
+            ctx.net.fillStyle='#000';
+            ctx.net.font='16px Arial';
+            ctx.net.textAlign='center';
+            ctx.net.textBaseline='middle';
+            ctx.net.fillText(l,x,y);
         };
 
-        // Error handling wrapper
-        function safeExecute(fn, fallback = null) {
-            try {
-                return fn();
-            } catch (error) {
-                console.error('Error:', error);
-                return fallback;
-            }
-        }
+        const drawConn=(x1,y1,x2,y2,w)=>{
+            ctx.net.beginPath();
+            ctx.net.moveTo(x1,y1);
+            ctx.net.lineTo(x2,y2);
+            ctx.net.strokeStyle=w>=0?'blue':'red';
+            ctx.net.lineWidth=Math.abs(w)*2;
+            ctx.net.stroke();
+            ctx.net.fillStyle='#000';
+            ctx.net.font='14px Arial';
+            ctx.net.fillText(w.toFixed(2),(x1+x2)/2,(y1+y2)/2);
+        };
 
-        // Debounce function for performance
-        function debounce(func, wait) {
-            let timeout;
-            return function executedFunction(...args) {
-                const later = () => {
-                    clearTimeout(timeout);
-                    func(...args);
-                };
-                clearTimeout(timeout);
-                timeout = setTimeout(later, wait);
-            };
-        }
+        drawConn(x1+r,y1,xo-r,yo,s.pos.x);
+        drawConn(x2+r,y2,xo-r,yo,s.pos.y);
+        drawNeuron(x1,y1,"x₁");
+        drawNeuron(x2,y2,"x₂");
+        drawNeuron(xo,yo,"y");
+        
+        ctx.net.font='bold 18px Arial';
+        ctx.net.fillStyle='#000';
+        ctx.net.textAlign='center';
+        ctx.net.fillText('Neural Network Unit',w/2,30);
 
-        function resizeCanvases() {
-            safeExecute(() => {
-                const container = document.getElementById('bowl-container');
-                const netContainer = document.getElementById('network-container');
-                
-                if (!container || !netContainer) return;
+        // Update MSE
+        const pred=s.pos.x+s.pos.y,
+              mse=0.5*pred*pred;
+        document.getElementById('mse-equation').innerHTML=
+            `MSE = ½(y - ŷ)² = ½(0 - (θ₁x₁ + θ₂x₂))² = ½(0 - (${s.pos.x.toFixed(1)} × 1 + ${s.pos.y.toFixed(1)} × 1))² = ${mse.toFixed(2)}`;
+    });
+};
 
-                const dpr = window.devicePixelRatio || 1;
-                
-                // Surface canvas
-                state.width = container.clientWidth;
-                state.height = container.clientHeight;
-                surfaceCanvas.width = state.width * dpr;
-                surfaceCanvas.height = state.height * dpr;
-                surfaceCanvas.style.width = `${state.width}px`;
-                surfaceCanvas.style.height = `${state.height}px`;
-                ctx.scale(dpr, dpr);
-                
-                // Network canvas
-                networkCanvas.width = netContainer.clientWidth * dpr;
-                networkCanvas.height = netContainer.clientHeight * dpr;
-                networkCanvas.style.width = `${netContainer.clientWidth}px`;
-                networkCanvas.style.height = `${netContainer.clientHeight}px`;
-                netCtx.scale(dpr, dpr);
-                
-                requestAnimationFrame(draw);
-            });
-        }
+const updateSliders=()=>run(()=>{
+    const[x,y]=[document.getElementById('x'),document.getElementById('y')];
+    if(x&&y){
+        x.value=s.pos.x;
+        y.value=s.pos.y;
+        document.getElementById('x-value').textContent=s.pos.x.toFixed(1);
+        document.getElementById('y-value').textContent=s.pos.y.toFixed(1);
+        document.getElementById('value').textContent=`Loss: ${loss(s.pos.x,s.pos.y,s.morph).toFixed(1)}`;
+    }
+});
 
-        function loss(x, y, morph) {
-            return safeExecute(() => {
-                return (x * x + y * y) * morph;
-            }, 0);
-        }
+const resize=()=>run(()=>{
+    const dpr=window.devicePixelRatio||1,
+          [bc,nc]=[document.getElementById('bowl-container'),document.getElementById('network-container')];
+    if(!bc||!nc)return;
+    
+    s.width=bc.clientWidth;
+    s.height=bc.clientHeight;
+    [c.surf.width,c.surf.height]=[s.width*dpr,s.height*dpr];
+    [c.surf.style.width,c.surf.style.height]=[`${s.width}px`,`${s.height}px`];
+    ctx.surf.scale(dpr,dpr);
+    
+    const [w,h]=[nc.clientWidth,nc.clientHeight];
+    [c.net.width,c.net.height]=[w*dpr,h*dpr];
+    [c.net.style.width,c.net.style.height]=[`${w}px`,`${h}px`];
+    ctx.net.scale(dpr,dpr);
+    
+    requestAnimationFrame(draw);
+});
 
-        function project(x, y, z) {
-            return safeExecute(() => {
-                const baseScale = Math.min(state.width, state.height) / 12;
-                const finalScale = baseScale * state.scale;
-                const centerX = state.width / 2 + state.translation.x;
-                const centerY = state.height / 2 + state.translation.y;
-                
-                const xRot = state.rotation.x * Math.PI / 180;
-                const yRot = state.rotation.y * Math.PI / 180;
-                
-                const x1 = x;
-                const y1 = y * Math.cos(xRot) - z * Math.sin(xRot);
-                const z1 = y * Math.sin(xRot) + z * Math.cos(xRot);
-                
-                const x2 = x1 * Math.cos(yRot) + z1 * Math.sin(yRot);
-                
-                return {
-                    x: x2 * finalScale + centerX,
-                    y: y1 * finalScale + centerY
-                };
-            }, { x: state.width / 2, y: state.height / 2 });
-        }
-
-        function getColor(height) {
-            return safeExecute(() => {
-                const maxHeight = 50;
-                const normalized = Math.min(height / maxHeight, 1);
-                const hue = 240 - normalized * 180;
-                return `hsl(${hue}, 80%, 50%)`;
-            }, 'hsl(240, 80%, 50%)');
-        }
-
-        function updateMSEEquation() {
-            safeExecute(() => {
-                const targetY = 0;
-                const predictedY = state.currentPos.x * 1 + state.currentPos.y * 1;
-                const mse = 0.5 * Math.pow(targetY - predictedY, 2);
-                
-                const equation = document.getElementById('mse-equation');
-                if (equation) {
-                    equation.innerHTML = `MSE = ½(y - ŷ)² = ½(0 - (θ₁x₁ + θ₂x₂))² = ½(0 - (${state.currentPos.x.toFixed(1)} × 1 + ${state.currentPos.y.toFixed(1)} × 1))² = ${mse.toFixed(2)}`;
-                }
-            });
-        }
-
-        function drawSurface() {
-            safeExecute(() => {
-                ctx.clearRect(0, 0, state.width, state.height);
-                
-                // Draw grid with optimization
-                const step = 0.2;
-                for (let x = -5; x <= 5; x += step) {
-                    for (let y = -5; y <= 5; y += step) {
-                        const z = loss(x, y, state.morphValue);
-                        const proj = project(x, y, z);
-                        ctx.beginPath();
-                        ctx.arc(proj.x, proj.y, 2 * state.scale, 0, Math.PI * 2);
-                        ctx.fillStyle = getColor(z);
-                        ctx.fill();
-                    }
-                }
-                
-                // Draw current point
-                const z = loss(state.currentPos.x, state.currentPos.y, state.morphValue);
-                const proj = project(state.currentPos.x, state.currentPos.y, z);
-                const baseProj = project(state.currentPos.x, state.currentPos.y, 0);
-
-                ctx.beginPath();
-                ctx.moveTo(proj.x, proj.y);
-                ctx.lineTo(proj.x, baseProj.y);
-                ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-                ctx.setLineDash([5, 5]);
-                ctx.stroke();
-                ctx.setLineDash([]);
-
-                ctx.beginPath();
-                ctx.arc(proj.x, proj.y, 6 * state.scale, 0, Math.PI * 2);
-                ctx.fillStyle = 'red';
-                ctx.fill();
-            });
-        }
-
-        function drawNetwork() {
-            safeExecute(() => {
-                const width = networkCanvas.width;
-                const height = networkCanvas.height;
-                netCtx.clearRect(0, 0, width, height);
-
-                const neuronRadius = 20;
-                const inputY1 = height * 0.3;
-                const inputY2 = height * 0.7;
-                const outputY = height * 0.5;
-                
-                function drawNeuron(x, y, label) {
-                    netCtx.beginPath();
-                    netCtx.arc(x, y, neuronRadius, 0, Math.PI * 2);
-                    netCtx.fillStyle = '#fff';
-                    netCtx.fill();
-                    netCtx.strokeStyle = '#000';
-                    netCtx.lineWidth = 2;
-                    netCtx.stroke();
-                    
-                    netCtx.fillStyle = '#000';
-                    netCtx.font = '16px Arial';
-                    netCtx.textAlign = 'center';
-                    netCtx.textBaseline = 'middle';
-                    netCtx.fillText(label, x, y);
-                }
-
-                function drawConnection(x1, y1, x2, y2, weight) {
-                    const width = Math.abs(weight) * 2;
-                    netCtx.beginPath();
-                    netCtx.moveTo(x1, y1);
-                    netCtx.lineTo(x2, y2);
-                    netCtx.strokeStyle = weight >= 0 ? 'blue' : 'red';
-                    netCtx.lineWidth = width;
-                    netCtx.stroke();
-
-                    const midX = (x1 + x2) / 2;
-                    const midY = (y1 + y2) / 2;
-                    netCtx.fillStyle = '#000';
-                    netCtx.font = '14px Arial';
-                    netCtx.textAlign = 'center';
-                    netCtx.fillText(weight.toFixed(2), midX, midY);
-                }
-
-                const input1X = width * 0.2;
-                const input2X = width * 0.2;
-                const outputX = width * 0.8;
-
-                drawConnection(input1X + neuronRadius, inputY1, outputX - neuronRadius, outputY, state.currentPos.x);
-                drawConnection(input2X + neuronRadius, inputY2, outputX - neuronRadius, outputY, state.currentPos.y);
-
-                drawNeuron(input1X, inputY1, "x₁");
-                drawNeuron(input2X, inputY2, "x₂");
-                drawNeuron(outputX, outputY, "y");
-
-                netCtx.font = 'bold 18px Arial';
-                netCtx.fillStyle = '#000';
-                netCtx.textAlign = 'center';
-                netCtx.fillText('Neural Network Unit', width/2, 30);
-            });
-        }
-
-        function draw() {
-            if (state.animationFrameId) {
-                cancelAnimationFrame(state.animationFrameId);
-            }
-            
-            state.animationFrameId = requestAnimationFrame(() => {
-                drawSurface();
-                drawNetwork();
-                updateMSEEquation();
-            });
-        }
-
-        // Event Handlers
-        function handleMouseDown(e) {
-            state.lastMousePos = { x: e.clientX, y: e.clientY };
-            
-            if (e.button === 2) {
-                state.isRotating = true;
-            } else if (e.button === 1) {
-                state.isPanning = true;
-                e.preventDefault();
-            } else {
-                state.isDragging = true;
-            }
-        }
-
-        function handleMouseMove(e) {
-            if (!state.isDragging && !state.isRotating &&
-function handleMouseMove(e) {
-            if (!state.isDragging && !state.isRotating && !state.isPanning) return;
-
-            const deltaX = e.clientX - state.lastMousePos.x;
-            const deltaY = e.clientY - state.lastMousePos.y;
-            
-            if (state.isRotating) {
-                state.rotation.y = (state.rotation.y + deltaX * 0.5) % 360;
-                state.rotation.x = Math.max(-90, Math.min(90, state.rotation.x + deltaY * 0.5));
-            } else if (state.isPanning) {
-                state.translation.x += deltaX;
-                state.translation.y += deltaY;
-            } else if (state.isDragging) {
-                state.currentPos.x = Math.max(-5, Math.min(5, state.currentPos.x + deltaX * 0.01));
-                state.currentPos.y = Math.max(-5, Math.min(5, state.currentPos.y - deltaY * 0.01));
+// Event Handlers
+const events={
+    mouse:{
+        down:e=>{
+            s.last={x:e.clientX,y:e.clientY};
+            if(e.button===2)s.isRot=true;
+            else if(e.button===1){s.isPan=true;e.preventDefault();}
+            else s.isDrag=true;
+        },
+        move:e=>{
+            if(!s.isDrag&&!s.isRot&&!s.isPan)return;
+            const[dx,dy]=[e.clientX-s.last.x,e.clientY-s.last.y];
+            if(s.isRot){
+                s.rot.y=(s.rot.y+dx*.5)%360;
+                s.rot.x=Math.max(-90,Math.min(90,s.rot.x+dy*.5));
+            }else if(s.isPan){
+                s.trans.x+=dx;
+                s.trans.y+=dy;
+            }else if(s.isDrag){
+                s.pos.x=Math.max(-5,Math.min(5,s.pos.x+dx*.01));
+                s.pos.y=Math.max(-5,Math.min(5,s.pos.y-dy*.01));
                 updateSliders();
             }
-            
-            state.lastMousePos = { x: e.clientX, y: e.clientY };
+            s.last={x:e.clientX,y:e.clientY};
             draw();
-        }
-
-        function handleMouseUp() {
-            state.isDragging = false;
-            state.isRotating = false;
-            state.isPanning = false;
-        }
-
-        function handleWheel(e) {
+        },
+        up:()=>{s.isDrag=s.isRot=s.isPan=false;},
+        wheel:e=>{
             e.preventDefault();
-            const scaleFactor = e.deltaY > 0 ? 0.9 : 1.1;
-            state.scale = Math.max(0.1, Math.min(5, state.scale * scaleFactor));
+            s.scale=Math.max(.1,Math.min(5,s.scale*(e.deltaY>0?.9:1.1)));
             draw();
         }
-
-        // Touch event handlers for mobile support
-        function handleTouchStart(e) {
-            if (e.touches.length === 1) {
-                state.isDragging = true;
-                state.lastMousePos = { 
-                    x: e.touches[0].clientX, 
-                    y: e.touches[0].clientY 
-                };
-            } else if (e.touches.length === 2) {
-                // Store initial touch points for pinch-zoom
-                state.initialTouchDistance = Math.hypot(
-                    e.touches[0].clientX - e.touches[1].clientX,
-                    e.touches[0].clientY - e.touches[1].clientY
+    },
+    touch:{
+        start:e=>{
+            if(e.touches.length===1){
+                s.isDrag=true;
+                s.last={x:e.touches[0].clientX,y:e.touches[0].clientY};
+            }else if(e.touches.length===2)
+                s.initDist=Math.hypot(
+                    e.touches[0].clientX-e.touches[1].clientX,
+                    e.touches[0].clientY-e.touches[1].clientY
                 );
-            }
             e.preventDefault();
-        }
-
-        function handleTouchMove(e) {
-            if (e.touches.length === 1 && state.isDragging) {
-                const deltaX = e.touches[0].clientX - state.lastMousePos.x;
-                const deltaY = e.touches[0].clientY - state.lastMousePos.y;
-                
-                state.currentPos.x = Math.max(-5, Math.min(5, state.currentPos.x + deltaX * 0.01));
-                state.currentPos.y = Math.max(-5, Math.min(5, state.currentPos.y - deltaY * 0.01));
-                
-                state.lastMousePos = { 
-                    x: e.touches[0].clientX, 
-                    y: e.touches[0].clientY 
-                };
+        },
+        move:e=>{
+            if(e.touches.length===1&&s.isDrag){
+                const[dx,dy]=[e.touches[0].clientX-s.last.x,e.touches[0].clientY-s.last.y];
+                s.pos.x=Math.max(-5,Math.min(5,s.pos.x+dx*.01));
+                s.pos.y=Math.max(-5,Math.min(5,s.pos.y-dy*.01));
+                s.last={x:e.touches[0].clientX,y:e.touches[0].clientY};
                 updateSliders();
                 draw();
-            } else if (e.touches.length === 2) {
-                // Handle pinch-zoom
-                const currentDistance = Math.hypot(
-                    e.touches[0].clientX - e.touches[1].clientX,
-                    e.touches[0].clientY - e.touches[1].clientY
+            }else if(e.touches.length===2&&s.initDist){
+                const d=Math.hypot(
+                    e.touches[0].clientX-e.touches[1].clientX,
+                    e.touches[0].clientY-e.touches[1].clientY
                 );
-                
-                if (state.initialTouchDistance) {
-                    const scaleFactor = currentDistance / state.initialTouchDistance;
-                    state.scale = Math.max(0.1, Math.min(5, state.scale * scaleFactor));
-                    state.initialTouchDistance = currentDistance;
-                    draw();
-                }
+                s.scale=Math.max(.1,Math.min(5,s.scale*d/s.initDist));
+                s.initDist=d;
+                draw();
             }
             e.preventDefault();
-        }
+        },
+        end:()=>{s.isDrag=false;s.initDist=null;}
+    }
+};
 
-        function handleTouchEnd() {
-            state.isDragging = false;
-            state.initialTouchDistance = null;
-        }
+// Initialize
+(()=>{
+    c.surf.addEventListener('mousedown',events.mouse.down);
+    window.addEventListener('mousemove',events.mouse.move);
+    window.addEventListener('mouseup',events.mouse.up);
+    c.surf.addEventListener('wheel',events.mouse.wheel);
+    c.surf.addEventListener('contextmenu',e=>e.preventDefault());
+    c.surf.addEventListener('touchstart',events.touch.start,{passive:false});
+    c.surf.addEventListener('touchmove',events.touch.move,{passive:false});
+    c.surf.addEventListener('touchend',events.touch.end);
 
-        function updateSliders() {
-            safeExecute(() => {
-                const xSlider = document.getElementById('x');
-                const ySlider = document.getElementById('y');
-                
-                if (xSlider && ySlider) {
-                    xSlider.value = state.currentPos.x;
-                    ySlider.value = state.currentPos.y;
-                    
-                    document.getElementById('x-value').textContent = state.currentPos.x.toFixed(1);
-                    document.getElementById('y-value').textContent = state.currentPos.y.toFixed(1);
-                    document.getElementById('value').textContent = 
-                        `Loss: ${loss(state.currentPos.x, state.currentPos.y, state.morphValue).toFixed(1)}`;
-                }
-            });
-        }
-
-        // Event Listeners
-        function initializeEventListeners() {
-            // Mouse events
-            surfaceCanvas.addEventListener('mousedown', handleMouseDown);
-            window.addEventListener('mousemove', handleMouseMove);
-            window.addEventListener('mouseup', handleMouseUp);
-            surfaceCanvas.addEventListener('wheel', handleWheel);
-            surfaceCanvas.addEventListener('contextmenu', e => e.preventDefault());
-
-            // Touch events
-            surfaceCanvas.addEventListener('touchstart', handleTouchStart, { passive: false });
-            surfaceCanvas.addEventListener('touchmove', handleTouchMove, { passive: false });
-            surfaceCanvas.addEventListener('touchend', handleTouchEnd);
-
-            // Slider events
-            const xSlider = document.getElementById('x');
-            const ySlider = document.getElementById('y');
-            const morphSlider = document.getElementById('morph');
-
-            if (xSlider) {
-                xSlider.addEventListener('input', (e) => {
-                    state.currentPos.x = parseFloat(e.target.value);
-                    updateSliders();
-                    draw();
-                });
+    ['x','y','morph'].forEach(id=>{
+        const el=document.getElementById(id);
+        if(el)el.addEventListener('input',e=>{
+            if(id==='morph'){
+                if(id==='morph'){
+                s.morph=parseFloat(e.target.value);
+                document.getElementById('morph-value').textContent=
+                    s.morph===0?'Flat':s.morph===1?'Bowl':'Morphing';
+            }else{
+                s.pos[id]=parseFloat(e.target.value);
+                updateSliders();
             }
+            draw();
+        });
+    });
 
-            if (ySlider) {
-                ySlider.addEventListener('input', (e) => {
-                    state.currentPos.y = parseFloat(e.target.value);
-                    updateSliders();
-                    draw();
-                });
-            }
+    let resizeTimer;
+    window.addEventListener('resize',()=>{
+        clearTimeout(resizeTimer);
+        resizeTimer=setTimeout(resize,250);
+    });
 
-            if (morphSlider) {
-                morphSlider.addEventListener('input', (e) => {
-                    state.morphValue = parseFloat(e.target.value);
-                    document.getElementById('morph-value').textContent = 
-                        state.morphValue === 0 ? 'Flat' : state.morphValue === 1 ? 'Bowl' : 'Morphing';
-                    draw();
-                });
-            }
-
-            // Window resize
-            window.addEventListener('resize', debounce(resizeCanvases, 250));
-        }
-
-        // Initialize
-        function initialize() {
-            resizeCanvases();
-            updateSliders();
-            initializeEventListeners();
-        }
-
-        // Start the application
-        initialize();
-    </script>
+    resize();
+    updateSliders();
+})();
+</script>
 </body>
 </html>
