@@ -1,3 +1,390 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Neural Network Unit with Morphing Surface</title>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            font-family: Arial, sans-serif;
+            background: white;
+            overflow: hidden;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 60% 40%;
+            width: 100vw;
+            height: 100vh;
+        }
+        #bowl-container {
+            position: relative;
+            touch-action: none; /* Prevents default touch behaviors */
+        }
+        #network-container {
+            position: relative;
+            background: #f8f9fa;
+            border-left: 1px solid #ddd;
+            padding: 20px;
+        }
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            max-width: 300px; /* Prevent overflow on small screens */
+        }
+        .slider-group {
+            margin-bottom: 15px;
+        }
+        .slider-group label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="range"] {
+            width: 100%;
+            max-width: 200px;
+        }
+        .shape-control {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+        }
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+        #instructions {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            max-width: 300px;
+        }
+        #mse-equation {
+            position: fixed;
+            top: 20px;
+            right: 45%;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            font-family: "Times New Roman", Times, serif;
+            font-size: 1.2em;
+            z-index: 1000;
+            max-width: 400px;
+            word-wrap: break-word;
+        }
+
+        /* Added responsive design */
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+            #mse-equation {
+                right: 20px;
+                font-size: 1em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="bowl-container">
+            <canvas id="surface-canvas"></canvas>
+        </div>
+        <div id="network-container">
+            <canvas id="network-canvas"></canvas>
+        </div>
+    </div>
+
+    <div id="mse-equation">
+        MSE = ½(y - ŷ)² = ½(0 - (θ₁x₁ + θ₂x₂))² = 0.0
+    </div>
+
+    <div class="controls">
+        <div class="slider-group">
+            <label>Weight 1 (θ₁): <span id="x-value">0.0</span></label>
+            <input type="range" id="x" min="-5" max="5" value="0" step="0.1">
+        </div>
+        <div class="slider-group">
+            <label>Weight 2 (θ₂): <span id="y-value">0.0</span></label>
+            <input type="range" id="y" min="-5" max="5" value="0" step="0.1">
+        </div>
+        <div class="shape-control">
+            <label>Surface Shape: <span id="morph-value">Flat</span></label>
+            <input type="range" id="morph" min="0" max="1" value="0" step="0.01">
+        </div>
+        <div id="value">Loss: 0.0</div>
+    </div>
+
+    <div id="instructions">
+        • Drag red point to adjust weights<br>
+        • Right-click + drag to rotate view<br>
+        • Mouse wheel to zoom<br>
+        • Middle-click + drag to move graph<br>
+        • Use shape slider to morph surface
+    </div>
+
+    <script>
+        // Cache DOM elements
+        const surfaceCanvas = document.getElementById('surface-canvas');
+        const networkCanvas = document.getElementById('network-canvas');
+        const ctx = surfaceCanvas.getContext('2d');
+        const netCtx = networkCanvas.getContext('2d');
+
+        // State management
+        const state = {
+            width: 0,
+            height: 0,
+            rotation: { x: 45, y: 45 },
+            scale: 1,
+            morphValue: 0,
+            currentPos: { x: 0, y: 0 },
+            translation: { x: 0, y: 0 },
+            isDragging: false,
+            isRotating: false,
+            isPanning: false,
+            lastMousePos: { x: 0, y: 0 },
+            animationFrameId: null
+        };
+
+        // Error handling wrapper
+        function safeExecute(fn, fallback = null) {
+            try {
+                return fn();
+            } catch (error) {
+                console.error('Error:', error);
+                return fallback;
+            }
+        }
+
+        // Debounce function for performance
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        function resizeCanvases() {
+            safeExecute(() => {
+                const container = document.getElementById('bowl-container');
+                const netContainer = document.getElementById('network-container');
+                
+                if (!container || !netContainer) return;
+
+                const dpr = window.devicePixelRatio || 1;
+                
+                // Surface canvas
+                state.width = container.clientWidth;
+                state.height = container.clientHeight;
+                surfaceCanvas.width = state.width * dpr;
+                surfaceCanvas.height = state.height * dpr;
+                surfaceCanvas.style.width = `${state.width}px`;
+                surfaceCanvas.style.height = `${state.height}px`;
+                ctx.scale(dpr, dpr);
+                
+                // Network canvas
+                networkCanvas.width = netContainer.clientWidth * dpr;
+                networkCanvas.height = netContainer.clientHeight * dpr;
+                networkCanvas.style.width = `${netContainer.clientWidth}px`;
+                networkCanvas.style.height = `${netContainer.clientHeight}px`;
+                netCtx.scale(dpr, dpr);
+                
+                requestAnimationFrame(draw);
+            });
+        }
+
+        function loss(x, y, morph) {
+            return safeExecute(() => {
+                return (x * x + y * y) * morph;
+            }, 0);
+        }
+
+        function project(x, y, z) {
+            return safeExecute(() => {
+                const baseScale = Math.min(state.width, state.height) / 12;
+                const finalScale = baseScale * state.scale;
+                const centerX = state.width / 2 + state.translation.x;
+                const centerY = state.height / 2 + state.translation.y;
+                
+                const xRot = state.rotation.x * Math.PI / 180;
+                const yRot = state.rotation.y * Math.PI / 180;
+                
+                const x1 = x;
+                const y1 = y * Math.cos(xRot) - z * Math.sin(xRot);
+                const z1 = y * Math.sin(xRot) + z * Math.cos(xRot);
+                
+                const x2 = x1 * Math.cos(yRot) + z1 * Math.sin(yRot);
+                
+                return {
+                    x: x2 * finalScale + centerX,
+                    y: y1 * finalScale + centerY
+                };
+            }, { x: state.width / 2, y: state.height / 2 });
+        }
+
+        function getColor(height) {
+            return safeExecute(() => {
+                const maxHeight = 50;
+                const normalized = Math.min(height / maxHeight, 1);
+                const hue = 240 - normalized * 180;
+                return `hsl(${hue}, 80%, 50%)`;
+            }, 'hsl(240, 80%, 50%)');
+        }
+
+        function updateMSEEquation() {
+            safeExecute(() => {
+                const targetY = 0;
+                const predictedY = state.currentPos.x * 1 + state.currentPos.y * 1;
+                const mse = 0.5 * Math.pow(targetY - predictedY, 2);
+                
+                const equation = document.getElementById('mse-equation');
+                if (equation) {
+                    equation.innerHTML = `MSE = ½(y - ŷ)² = ½(0 - (θ₁x₁ + θ₂x₂))² = ½(0 - (${state.currentPos.x.toFixed(1)} × 1 + ${state.currentPos.y.toFixed(1)} × 1))² = ${mse.toFixed(2)}`;
+                }
+            });
+        }
+
+        function drawSurface() {
+            safeExecute(() => {
+                ctx.clearRect(0, 0, state.width, state.height);
+                
+                // Draw grid with optimization
+                const step = 0.2;
+                for (let x = -5; x <= 5; x += step) {
+                    for (let y = -5; y <= 5; y += step) {
+                        const z = loss(x, y, state.morphValue);
+                        const proj = project(x, y, z);
+                        ctx.beginPath();
+                        ctx.arc(proj.x, proj.y, 2 * state.scale, 0, Math.PI * 2);
+                        ctx.fillStyle = getColor(z);
+                        ctx.fill();
+                    }
+                }
+                
+                // Draw current point
+                const z = loss(state.currentPos.x, state.currentPos.y, state.morphValue);
+                const proj = project(state.currentPos.x, state.currentPos.y, z);
+                const baseProj = project(state.currentPos.x, state.currentPos.y, 0);
+
+                ctx.beginPath();
+                ctx.moveTo(proj.x, proj.y);
+                ctx.lineTo(proj.x, baseProj.y);
+                ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+                ctx.setLineDash([5, 5]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                ctx.beginPath();
+                ctx.arc(proj.x, proj.y, 6 * state.scale, 0, Math.PI * 2);
+                ctx.fillStyle = 'red';
+                ctx.fill();
+            });
+        }
+
+        function drawNetwork() {
+            safeExecute(() => {
+                const width = networkCanvas.width;
+                const height = networkCanvas.height;
+                netCtx.clearRect(0, 0, width, height);
+
+                const neuronRadius = 20;
+                const inputY1 = height * 0.3;
+                const inputY2 = height * 0.7;
+                const outputY = height * 0.5;
+                
+                function drawNeuron(x, y, label) {
+                    netCtx.beginPath();
+                    netCtx.arc(x, y, neuronRadius, 0, Math.PI * 2);
+                    netCtx.fillStyle = '#fff';
+                    netCtx.fill();
+                    netCtx.strokeStyle = '#000';
+                    netCtx.lineWidth = 2;
+                    netCtx.stroke();
+                    
+                    netCtx.fillStyle = '#000';
+                    netCtx.font = '16px Arial';
+                    netCtx.textAlign = 'center';
+                    netCtx.textBaseline = 'middle';
+                    netCtx.fillText(label, x, y);
+                }
+
+                function drawConnection(x1, y1, x2, y2, weight) {
+                    const width = Math.abs(weight) * 2;
+                    netCtx.beginPath();
+                    netCtx.moveTo(x1, y1);
+                    netCtx.lineTo(x2, y2);
+                    netCtx.strokeStyle = weight >= 0 ? 'blue' : 'red';
+                    netCtx.lineWidth = width;
+                    netCtx.stroke();
+
+                    const midX = (x1 + x2) / 2;
+                    const midY = (y1 + y2) / 2;
+                    netCtx.fillStyle = '#000';
+                    netCtx.font = '14px Arial';
+                    netCtx.textAlign = 'center';
+                    netCtx.fillText(weight.toFixed(2), midX, midY);
+                }
+
+                const input1X = width * 0.2;
+                const input2X = width * 0.2;
+                const outputX = width * 0.8;
+
+                drawConnection(input1X + neuronRadius, inputY1, outputX - neuronRadius, outputY, state.currentPos.x);
+                drawConnection(input2X + neuronRadius, inputY2, outputX - neuronRadius, outputY, state.currentPos.y);
+
+                drawNeuron(input1X, inputY1, "x₁");
+                drawNeuron(input2X, inputY2, "x₂");
+                drawNeuron(outputX, outputY, "y");
+
+                netCtx.font = 'bold 18px Arial';
+                netCtx.fillStyle = '#000';
+                netCtx.textAlign = 'center';
+                netCtx.fillText('Neural Network Unit', width/2, 30);
+            });
+        }
+
+        function draw() {
+            if (state.animationFrameId) {
+                cancelAnimationFrame(state.animationFrameId);
+            }
+            
+            state.animationFrameId = requestAnimationFrame(() => {
+                drawSurface();
+                drawNetwork();
+                updateMSEEquation();
+            });
+        }
+
+        // Event Handlers
+        function handleMouseDown(e) {
+            state.lastMousePos = { x: e.clientX, y: e.clientY };
+            
+            if (e.button === 2) {
+                state.isRotating = true;
+            } else if (e.button === 1) {
+                state.isPanning = true;
+                e.preventDefault();
+            } else {
+                state.isDragging = true;
+            }
+        }
+
+        function handleMouseMove(e) {
+            if (!state.isDragging && !state.isRotating &&
 function handleMouseMove(e) {
             if (!state.isDragging && !state.isRotating && !state.isPanning) return;
 
