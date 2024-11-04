@@ -111,10 +111,10 @@
     </div>
 
     <div id="instructions">
-        • Drag red point to adjust weights<br>
+        • Alt + Left click to adjust weights<br>
         • Right-click + drag to rotate view<br>
+        • Left-click + drag to pan view<br>
         • Mouse wheel to zoom<br>
-        • Middle-click + drag to pan view<br>
         • Use shape slider to morph surface
     </div>
 
@@ -176,14 +176,10 @@
         }
 
         function getColor(height, x, y) {
-            const maxHeight = 50;
-            const normalized = Math.min(height / maxHeight, 1);
-            
             // RGB gradient based on position and height
             const r = Math.floor(((x + 5) / 10) * 255);  // Red varies with x
             const g = Math.floor(((y + 5) / 10) * 255);  // Green varies with y
-            const b = Math.floor(normalized * 255);       // Blue varies with height
-            
+            const b = Math.floor((height / 50) * 255);   // Blue varies with height
             return `rgb(${r}, ${g}, ${b})`;
         }
 
@@ -295,11 +291,10 @@
             lastMousePos = { x: e.clientX, y: e.clientY };
             if (e.button === 2) {
                 isRotating = true;
-            } else if (e.button === 1) {  // Middle mouse button
-                isPanning = true;
-                e.preventDefault();
-            } else {
+            } else if (e.altKey) {
                 isDragging = true;
+            } else {
+                isPanning = true;
             }
         });
 
