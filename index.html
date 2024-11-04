@@ -53,23 +53,6 @@
         canvas {
             display: block;
         }
-        #surface-canvas {
-            cursor: grab;
-        }
-        #surface-canvas:active {
-            cursor: grabbing;
-        }
-        .equation {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            z-index: 1000;
-            font-size: 1.2em;
-        }
         #instructions {
             position: fixed;
             bottom: 20px;
@@ -107,15 +90,8 @@
         <div id="value">Loss: 0.0</div>
     </div>
 
-    <div class="equation">
-        Loss Function (MSE):<br>
-        L = 1/n ∑(yᵢ - ŷᵢ)²<br>
-        Current Loss: <span id="loss-value">0.0</span>
-    </div>
-
     <div id="instructions">
-        • Click and drag empty space to move graph<br>
-        • Click and drag red point to adjust weights<br>
+        • Drag red point to adjust weights<br>
         • Right-click + drag to rotate view<br>
         • Mouse wheel to zoom<br>
         • Use shape slider to morph surface
@@ -134,9 +110,7 @@
         let currentPos = { x: 0, y: 0 };
         let isDragging = false;
         let isRotating = false;
-        let isDraggingGraph = false;
         let lastMousePos = { x: 0, y: 0 };
-        let translation = { x: 0, y: 0 };
 
         function resizeCanvases() {
             const container = document.getElementById('bowl-container');
@@ -152,14 +126,19 @@
         }
 
         function loss(x, y, morph) {
+            // Interpolate between flat surface (z = 0) and bowl (z = x² + y²)
             return (x * x + y * y) * morph;
+        }
+
+        function meanSquaredError(target, prediction) {
+            return Math.pow(target - prediction, 2);
         }
 
         function project(x, y, z) {
             const baseScale = Math.min(width, height) / 12;
             const finalScale = baseScale * scale;
-            const centerX = width / 2 + translation.x;
-            const centerY = height / 2 + translation.y;
+            const centerX = width / 2;
+            const centerY = height / 2;
             
             const xRot = rotation.x * Math.PI / 180;
             const yRot = rotation.y * Math.PI / 180;
@@ -183,17 +162,10 @@
             return `hsl(${hue}, 80%, 50%)`;
         }
 
-        function isNearPoint(mouseX, mouseY) {
-            const z = loss(currentPos.x, currentPos.y, morphValue);
-            const proj = project(currentPos.x, currentPos.y, z);
-            const dx = mouseX - proj.x;
-            const dy = mouseY - proj.y;
-            return Math.sqrt(dx * dx + dy * dy) < 10 * scale;
-        }
-
         function drawSurface() {
             ctx.clearRect(0, 0, width, height);
             
+            // Draw grid
             for (let x = -5; x <= 5; x += 0.2) {
                 for (let y = -5; y <= 5; y += 0.2) {
                     const z = loss(x, y, morphValue);
@@ -205,10 +177,12 @@
                 }
             }
             
+            // Draw current point
             const z = loss(currentPos.x, currentPos.y, morphValue);
             const proj = project(currentPos.x, currentPos.y, z);
             const baseProj = project(currentPos.x, currentPos.y, 0);
 
+            // Vertical line
             ctx.beginPath();
             ctx.moveTo(proj.x, proj.y);
             ctx.lineTo(proj.x, baseProj.y);
@@ -217,6 +191,7 @@
             ctx.stroke();
             ctx.setLineDash([]);
 
+            // Point
             ctx.beginPath();
             ctx.arc(proj.x, proj.y, 6 * scale, 0, Math.PI * 2);
             ctx.fillStyle = 'red';
@@ -228,11 +203,13 @@
             const height = networkCanvas.height;
             netCtx.clearRect(0, 0, width, height);
 
+            // Draw neurons
             const neuronRadius = 20;
             const inputY1 = height * 0.3;
             const inputY2 = height * 0.7;
             const outputY = height * 0.5;
             
+            // Input neurons
             function drawNeuron(x, y, label) {
                 netCtx.beginPath();
                 netCtx.arc(x, y, neuronRadius, 0, Math.PI * 2);
@@ -249,6 +226,7 @@
                 netCtx.fillText(label, x, y);
             }
 
+            // Draw connections with weights
             function drawConnection(x1, y1, x2, y2, weight) {
                 const width = Math.abs(weight) * 2;
                 netCtx.beginPath();
@@ -258,134 +236,8 @@
                 netCtx.lineWidth = width;
                 netCtx.stroke();
 
+                // Weight label
                 const midX = (x1 + x2) / 2;
                 const midY = (y1 + y2) / 2;
                 netCtx.fillStyle = '#000';
-                netCtx.font = '14px Arial';
-                netCtx.textAlign = 'center';
-                netCtx.fillText(weight.toFixed(2), midX, midY);
-            }
-
-            const input1X = width * 0.2;
-            const input2X = width * 0.2;
-            const outputX = width * 0.8;
-
-            drawConnection(input1X + neuronRadius, inputY1, outputX - neuronRadius, outputY, currentPos.x);
-            drawConnection(input2X + neuronRadius, inputY2, outputX - neuronRadius, outputY, currentPos.y);
-
-            drawNeuron(input1X, inputY1, "x₁");
-            drawNeuron(input2X, inputY2, "x₂");
-            drawNeuron(outputX, outputY, "y");
-
-            netCtx.font = 'bold 18px Arial';
-            netCtx.fillStyle = '#000';
-            netCtx.textAlign = 'center';
-            netCtx.fillText('Neural Network Unit', width/2, 30);
-        }
-
-        function draw() {
-            drawSurface();
-            drawNetwork();
-        }
-
-        surfaceCanvas.addEventListener('mousedown', (e) => {
-            lastMousePos = { x: e.clientX, y: e.clientY };
-            
-            if (e.button === 2) {
-                isRotating = true;
-            } else if (isNearPoint(e.clientX, e.clientY)) {
-                isDragging = true;
-            } else {
-                isDraggingGraph = true;
-            }
-        });
-
-        surfaceCanvas.addEventListener('mousemove', (e) => {
-            if (isDraggingGraph) {
-                translation.x += e.clientX - lastMousePos.x;
-                translation.y += e.clientY - lastMousePos.y;
-                draw();
-            } else if (isRotating) {
-                const deltaX = e.clientX - lastMousePos.x;
-                const deltaY = e.clientY - lastMousePos.y;
-                rotation.y += deltaX * 0.5;
-                rotation.x += deltaY * 0.5;
-                draw();
-            } else if (isDragging) {
-                const deltaX = e.clientX - lastMousePos.x;
-                const deltaY = e.clientY - lastMousePos.y;
-                
-                currentPos.x += deltaX * 0.01;
-                currentPos.y -= deltaY * 0.01;
-                currentPos.x = Math.max(-5, Math.min(5, currentPos.x));
-                currentPos.y = Math.max(-5, Math.min(5, currentPos.y));
-                updateSliders();
-                draw();
-            }
-            
-            lastMousePos = { x: e.clientX, y: e.clientY };
-        });
-
-        surfaceCanvas.addEventListener('mouseup', () => {
-            isDragging = false;
-            isRotating = false;
-            isDraggingGraph = false;
-        });
-
-        surfaceCanvas.addEventListener('mouseleave', () => {
-            isDragging = false;
-            isRotating = false;
-            isDraggingGraph = false;
-        });
-
-        surfaceCanvas.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            scale *= e.deltaY > 0 ? 0.9 : 1.1;
-            scale = Math.max(0.1, Math.min(scale, 5));
-            draw();
-        });
-
-        surfaceCanvas.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-        });
-
-        const xSlider = document.getElementById('x');
-        const ySlider = document.getElementById('y');
-        const morphSlider = document.getElementById('morph');
-
-        function updateSliders() {
-            xSlider.value = currentPos.x;
-            ySlider.value = currentPos.y;
-            document.getElementById('x-value').textContent = currentPos.x.toFixed(1);
-            document.getElementById('y-value').textContent = currentPos.y.toFixed(1);
-            const currentLoss = loss(currentPos.x, currentPos.y, morphValue);
-            document.getElementById('value').textContent = `Loss: ${currentLoss.toFixed(3)}`;
-            document.getElementById('loss-value').textContent = currentLoss.toFixed(3);
-        }
-
-        xSlider.addEventListener('input', (e) => {
-            currentPos.x = parseFloat(e.target.value);
-            updateSliders();
-            draw();
-        });
-
-        ySlider.addEventListener('input', (e) => {
-            currentPos.y = parseFloat(e.target.value);
-            updateSliders();
-            draw();
-        });
-
-        morphSlider.addEventListener('input', (e) => {
-            morphValue = parseFloat(e.target.value);
-            document.getElementById('morph-value').textContent = 
-                morphValue === 0 ? 'Flat' : morphValue === 1 ? 'Bowl' : 'Morphing';
-            updateSliders();
-            draw();
-        });
-
-        window.addEventListener('resize', resizeCanvases);
-        resizeCanvases();
-        updateSliders();
-    </script>
-</body>
-</html>
+                netCtx.font = '14px
