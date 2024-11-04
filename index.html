@@ -87,9 +87,7 @@
     </div>
 
     <div class="formula">
-        Loss = m(θ₁² + θ₂²)
-        <br>
-        <small>where m is morph value</small>
+        MSE = (1/n) * Σ(yᵢ - ȳ)²
     </div>
 
     <div class="controls">
@@ -112,7 +110,6 @@
         • Drag red point to adjust weights<br>
         • Right-click + drag to rotate view<br>
         • Mouse wheel to zoom<br>
-        • Middle-click + drag to pan view<br>
         • Use shape slider to morph surface
     </div>
 
@@ -129,10 +126,8 @@
         let currentPos = { x: 0, y: 0 };
         let isDragging = false;
         let isRotating = false;
-        let isPanning = false;
         let lastMousePos = { x: 0, y: 0 };
         let path = [];
-        let viewOffset = { x: 0, y: 0 };
 
         function resizeCanvases() {
             const container = document.getElementById('bowl-container');
@@ -155,8 +150,8 @@
         function project(x, y, z) {
             const baseScale = Math.min(width, height) / 12;
             const finalScale = baseScale * scale;
-            const centerX = width / 2 + viewOffset.x;
-            const centerY = height / 2 + viewOffset.y;
+            const centerX = width / 2;
+            const centerY = height / 2;
             
             const xRot = rotation.x * Math.PI / 180;
             const yRot = rotation.y * Math.PI / 180;
@@ -227,6 +222,7 @@
             const inputY2 = height * 0.7;
             const outputY = height * 0.5;
             
+            // Draw neurons
             function drawNeuron(x, y, label) {
                 netCtx.beginPath();
                 netCtx.arc(x, y, neuronRadius, 0, Math.PI * 2);
@@ -243,6 +239,7 @@
                 netCtx.fillText(label, x, y);
             }
 
+            // Draw connections with weights
             function drawConnection(x1, y1, x2, y2, weight) {
                 const width = Math.abs(weight) * 2;
                 netCtx.beginPath();
@@ -252,6 +249,7 @@
                 netCtx.lineWidth = width;
                 netCtx.stroke();
 
+                // Weight label
                 const midX = (x1 + x2) / 2;
                 const midY = (y1 + y2) / 2;
                 netCtx.fillStyle = '#000';
@@ -288,26 +286,22 @@
             lastMousePos = { x: e.clientX, y: e.clientY };
             if (e.button === 2) {
                 isRotating = true;
-            } else if (e.button === 1) { // Middle mouse button
-                isPanning = true;
-                e.preventDefault();
             } else {
                 isDragging = true;
             }
         });
 
         surfaceCanvas.addEventListener('mousemove', (e) => {
-            if (isDragging || isRotating || isPanning) {
+            if (isDragging || isRotating) {
                 const deltaX = e.clientX - lastMousePos.x;
                 const deltaY = e.clientY - lastMousePos.y;
                 
                 if (isRotating) {
                     rotation.y += deltaX * 0.5;
                     rotation.x += deltaY * 0.5;
-                } else if (isPanning) {
-                    viewOffset.x += deltaX;
-                    viewOffset.y += deltaY;
                 } else {
+                    // Update point position based on mouse movement
+                    // This is a simplified version - you might want to improve the mapping
                     currentPos.x += deltaX * 0.01;
                     currentPos.y -= deltaY * 0.01;
                     currentPos.x = Math.max(-5, Math.min(5, currentPos.x));
@@ -323,7 +317,6 @@
         surfaceCanvas.addEventListener('mouseup', () => {
             isDragging = false;
             isRotating = false;
-            isPanning = false;
         });
 
         surfaceCanvas.addEventListener('wheel', (e) => {
